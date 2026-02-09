@@ -1,0 +1,24 @@
+# Project Settings
+project_name: "Medical-Llama-3B-Nano"
+output_dir: "./outputs"
+
+# Model Settings (Matches your snippet)
+model_name: "meta-llama/Llama-3.2-3B-Instruct"
+use_4bit: true
+max_seq_length: 512
+
+# Training Args
+batch_size: 1
+grad_accumulation: 4
+learning_rate: 2.0e-4
+epochs: 1
+optim: "paged_adamw_8bit"
+
+# LoRA Params (Matches your snippet)
+lora_r: 16
+lora_alpha: 32
+lora_dropout: 0.05
+
+# Data Paths
+raw_data_dir: "./sampled_data" 
+processed_data_dir: "./data/ready"

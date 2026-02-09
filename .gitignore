@@ -1,0 +1,35 @@
+venv
+sampled_data
+__pycache__
+*.pyc
+*.pyo
+.DS_Store
+.idea
+*.log
+*.csv
+*.json
+*.xlsx
+*.zip
+*.tar.gz
+*.egg-info
+dist
+build
+*.egg
+*.env
+.env
+*.venv
+*.ipynb_checkpoints
+*.vscode
+*.pytest_cache
+*.mypy_cache
+*.coverage
+
+# Ignore Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+# Ignore virtual environment directories
+venv/           
+# Ignore Python bytecode files
+__pycache__/
+
+# Ignore log files
+*.log   
