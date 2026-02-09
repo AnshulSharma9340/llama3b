@@ -35,7 +35,7 @@ class MedicalTrainer:
         self.tokenizer = None
 
     def load_model_and_tokenizer(self):
-        print("🧠 Loading Tokenizer & Model...")
+        print("🧠 Loading Tokenizer & Model (A100 Mode)...")
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.cfg['model_name'], 
             trust_remote_code=True
@@ -43,42 +43,26 @@ class MedicalTrainer:
         self.tokenizer.pad_token = self.tokenizer.eos_token
         self.tokenizer.padding_side = "right"
 
-        # 1. Force 4-bit Compute to Float16 (Strict)
+        # 1. A100 supports BFloat16 Compute (Faster & Stable)
         bnb_config = BitsAndBytesConfig(
             load_in_4bit=self.cfg['use_4bit'],
             bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch.float16, 
+            bnb_4bit_compute_dtype=torch.bfloat16,  # <--- A100 Optimized
             bnb_4bit_use_double_quant=True,
         )
 
-        # 2. Load Model 
+        # 2. Load Model with Flash Attention 2
         self.model = AutoModelForCausalLM.from_pretrained(
             self.cfg['model_name'],
             quantization_config=bnb_config,
             device_map="auto",
             use_cache=False,
-            torch_dtype=torch.float16 # Request FP16
+            torch_dtype=torch.bfloat16,             # <--- A100 Optimized
+            attn_implementation="flash_attention_2" # <--- MASSIVE SPEEDUP
         )
         
-        # 3. Prepare for Training (Important step)
+        # 3. Prepare for Training
         self.model = prepare_model_for_kbit_training(self.model)
-
-        # 4. NUCLEAR SANITIZATION ☢️
-        # We iterate over every module and FORCE compatible types.
-        print("💉 FORCE-CONVERTING all modules to RTX 2050 compatible types...")
-        for name, module in self.model.named_modules():
-            # Force Normalization layers to Float32 (Safer & Fixes BF16 crash)
-            if "norm" in name.lower():
-                module.to(torch.float32)
-
-        # Force any remaining BFloat16 params to Float16
-        for name, param in self.model.named_parameters():
-            if param.dtype == torch.bfloat16:
-                print(f"   Converting {name} from BF16 -> FP16")
-                param.data = param.data.to(torch.float16)
-
-        # Force config to report FP16
-        self.model.config.torch_dtype = torch.float16
         self.model.gradient_checkpointing_enable()
 
     def get_lora_config(self):
@@ -112,25 +96,25 @@ class MedicalTrainer:
         train_dataset = train_dataset.map(self.apply_chat_template, batched=True)
         val_dataset = val_dataset.map(self.apply_chat_template, batched=True)
 
-        # --- ARGUMENTS (FIXED FOR QLORA + FP16) ---
+        # --- ARGUMENTS (A100 POWER MODE) ---
         args_dict = {
             "output_dir": self.cfg['output_dir'],
             "num_train_epochs": self.cfg['epochs'],
             "per_device_train_batch_size": self.cfg['batch_size'],
             "gradient_accumulation_steps": self.cfg['grad_accumulation'],
             "learning_rate": self.cfg['learning_rate'],
-            "optim": "paged_adamw_8bit",  
+            "optim": "paged_adamw_32bit",   # Standard optimizer is fine for A100
             "logging_steps": 10,
             "save_steps": 50,
             "report_to": "none",
             "eval_strategy": "steps", 
             "eval_steps": 50,
-            "fp16": False,  # ✅ CRITICAL FIX: Disable native FP16 to avoid gradient scaler
-            "bf16": False,  
+            "bf16": True,   # ✅ ENABLE BFloat16 (Native to A100)
+            "fp16": False,  # ❌ DISABLE Float16
             "group_by_length": True,
             "gradient_checkpointing": True,
-            "max_grad_norm": 0.3,  # ✅ Added: helps with gradient stability
-            "warmup_ratio": 0.03,  # ✅ Added: gradual warmup
+            "max_grad_norm": 0.3,
+            "warmup_ratio": 0.03,
         }
 
         # --- CONFIG OBJECT CREATION ---
@@ -171,14 +155,8 @@ class MedicalTrainer:
              trainer_kwargs["packing"] = False
              trainer_kwargs["dataset_text_field"] = "text"
 
-        print("\n🚀 STARTING TRAINING NOW...")
+        print("\n🚀 STARTING TRAINING (A100 MODE)...")
         trainer = SFTTrainer(**trainer_kwargs)
-        
-        # Double check model is sanitized before loop starts
-        for name, param in trainer.model.named_parameters():
-             if param.dtype == torch.bfloat16:
-                 param.data = param.data.to(torch.float16)
-        
         trainer.train()
         
         print(f"💾 Saving Model to {self.cfg['output_dir']}/final_adapter")
