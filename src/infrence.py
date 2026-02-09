@@ -15,17 +15,19 @@ class MedicalInferencer:
         self.setup()
 
     def setup(self):
-        print("🧠 Loading Base Model & Adapters...")
+        print("🧠 Loading Base Model & Adapters (A100 Mode)...")
         
-        # Load Base Model
+        # Load Base Model with BFloat16 + Flash Attention
         bnb_config = BitsAndBytesConfig(
             load_in_4bit=True,
-            bnb_4bit_compute_dtype=torch.float16
+            bnb_4bit_compute_dtype=torch.bfloat16 # <--- A100 Optimized
         )
         base_model = AutoModelForCausalLM.from_pretrained(
             self.cfg['model_name'],
             quantization_config=bnb_config,
-            device_map="auto"
+            device_map="auto",
+            torch_dtype=torch.bfloat16,             # <--- A100 Optimized
+            attn_implementation="flash_attention_2" # <--- FASTER
         )
         
         # Load Tokenizer
@@ -50,20 +52,24 @@ You are a knowledgeable medical assistant. Provide accurate, helpful information
         with torch.no_grad():
             outputs = self.model.generate(
                 **inputs,
-                max_new_tokens=256,
+                max_new_tokens=512, # Increased for detailed medical answers
                 temperature=0.7,
                 do_sample=True,
                 top_p=0.9
             )
             
         response = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
-        # Extract only the assistant's reply
-        clean_response = response.split("assistant")[-1].strip()
+        # Extract only the assistant's reply (Robust split)
+        if "assistant" in response:
+            clean_response = response.split("assistant")[-1].strip()
+        else:
+            clean_response = response # Fallback if split fails
+            
         return clean_response
 
 if __name__ == "__main__":
     bot = MedicalInferencer()
-    print("\n✅ Medical AI Ready! Type 'exit' to quit.\n")
+    print("\n✅ Medical AI Ready (A100)! Type 'exit' to quit.\n")
     
     while True:
         q = input("User: ")
